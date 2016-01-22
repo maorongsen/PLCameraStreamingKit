@@ -146,7 +146,7 @@ PLStreamingSendingBufferDelegate
     if ([self.videoConfiguration isEqual:videoConfiguration]) {
         return;
     }
-    
+    self.videoConfiguration = videoConfiguration;
     self.streamingSession.videoConfiguration = videoConfiguration;
     [self.streamingSession reloadVideoConfiguration:videoConfiguration];
 }
