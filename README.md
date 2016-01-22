@@ -402,6 +402,15 @@ PLCameraStreamingKit 使用 HeaderDoc 注释来做文档支持。
 
 ## 版本历史
 
+- 1.6.0 ([Release Notes](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/ReleaseNotes/release-notes-1.6.0.md) && [API Diffs](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/APIDiffs/api-diffs-1.6.0.md))
+    - 更新依赖 PLStreamingKit 的版本到 `v1.1.2`
+    - 添加 `PLStreamStatus` 回调，便于客户端监控推流状态
+    - 修复采集源 fps 变更失败的问题
+- 1.5.2 ([Release Notes](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/ReleaseNotes/release-notes-1.5.2.md) && [API Diffs](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/APIDiffs/api-diffs-1.5.2.md))
+    - 更新依赖 PLStreamingKit 的版本到 `v1.0.3`
+- 1.5.1 ([Release Notes](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/ReleaseNotes/release-notes-1.5.1.md) && [API Diffs](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/APIDiffs/api-diffs-1.5.1.md))
+    - 更新依赖 PLStreamingKit 的版本到 `v1.0.2`
+    - 更改音频数据源采集部分，转换为单声道
 - 1.5.0 ([Release Notes](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/ReleaseNotes/release-notes-1.5.0.md) && [API Diffs](https://github.com/pili-engineering/PLCameraStreamingKit/blob/master/APIDiffs/api-diffs-1.5.0.md))
     - 编码推流改为依赖 `PLStreamingKit`
     - 去除 `PLAudioStreamingSession` 类, 建议单纯推音频的 App 直接接入 `PLStreamingKit`

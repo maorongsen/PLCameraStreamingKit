@@ -14,7 +14,7 @@
             buildForArchiving = "YES">
             <BuildableReference
                BuildableIdentifier = 'primary'
-               BlueprintIdentifier = 'DA92D434B0AAEDA8473A8BB4'
+               BlueprintIdentifier = 'EF630E005B8B388E3DF4493C'
                BlueprintName = 'PLCameraStreamingKit'
                ReferencedContainer = 'container:Pods.xcodeproj'
                BuildableName = 'libPLCameraStreamingKit.a'>

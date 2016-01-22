@@ -9,6 +9,7 @@
 #import "PLCameraStreamingViewController.h"
 #import "Reachability.h"
 #import <PLCameraStreamingKit/PLCameraStreamingKit.h>
+#import <asl.h>
 
 const char *stateNames[] = {
     "Unknow",
@@ -25,6 +26,43 @@ const char *networkStatus[] = {
     "Reachable via CELL"
 };
 
+// 假设在 videoFPS 低于预期 50% 的情况下就触发降低推流质量的操作，这里的 40% 是一个假定数值，你可以更改数值来尝试不同的策略
+#define kMaxVideoFPSPercent 0.5
+
+// 假设当 videoFPS 在 10s 内与设定的 fps 相差都小于 5% 时，就尝试调高编码质量
+#define kMinVideoFPSPercent 0.05
+#define kHigherQualityTimeInterval  10
+
+static NSArray *ConsoleLogs() {
+    NSMutableArray *consoleLog = [NSMutableArray array];
+    
+    aslclient client = asl_open(NULL, NULL, ASL_OPT_STDERR);
+    
+    aslmsg query = asl_new(ASL_TYPE_QUERY);
+    asl_set_query(query, ASL_KEY_MSG, NULL, ASL_QUERY_OP_NOT_EQUAL);
+    aslresponse response = asl_search(client, query);
+    
+    asl_free(query);
+    
+    aslmsg message;
+    while((message = asl_next(response)))
+    {
+        const char *msg = asl_get(message, ASL_KEY_MSG);
+        [consoleLog addObject:[NSString stringWithCString:msg encoding:NSUTF8StringEncoding]];
+    }
+    
+    asl_release(response);
+    asl_close(client);
+    
+    return consoleLog;
+}
+
+static NSString *LogString() {
+    NSArray *logs = ConsoleLogs();
+    NSString *log = [logs componentsJoinedByString:@"\n"];
+    return log;
+}
+
 @interface PLCameraStreamingViewController ()
 <
 PLCameraStreamingSessionDelegate,
@@ -34,6 +72,8 @@ PLStreamingSendingBufferDelegate
 @property (nonatomic, strong) PLCameraStreamingSession  *session;
 @property (nonatomic, strong) Reachability *internetReachability;
 @property (nonatomic, strong) dispatch_queue_t sessionQueue;
+@property (nonatomic, strong) NSArray   *videoConfigurations;
+@property (nonatomic, strong) NSDate    *keyTime;
 
 @end
 
@@ -42,6 +82,13 @@ PLStreamingSendingBufferDelegate
 - (void)viewDidLoad {
     [super viewDidLoad];
     
+    // 预先设定几组编码质量，之后可以切换
+    CGSize videoSize = CGSizeMake(320, 480);
+    self.videoConfigurations = @[
+                                 [PLVideoStreamingConfiguration configurationWithVideoSize:videoSize videoQuality:kPLVideoStreamingQualityMedium1],
+                                 [PLVideoStreamingConfiguration configurationWithVideoSize:videoSize videoQuality:kPLVideoStreamingQualityMedium2],
+                                 [PLVideoStreamingConfiguration configurationWithVideoSize:videoSize videoQuality:kPLVideoStreamingQualityMedium3],
+                                 ];
     self.sessionQueue = dispatch_queue_create("pili.queue.streaming", DISPATCH_QUEUE_SERIAL);
     
     // 网络状态监控
@@ -64,14 +111,15 @@ PLStreamingSendingBufferDelegate
     //      @"hosts": @{
     //              ...
     //      }
+#warning 如果要运行 demo 这里应该填写服务端返回的某个流的 json 信息
     NSDictionary *streamJSON;
+    
     PLStream *stream = [PLStream streamWithJSON:streamJSON];
     
     void (^permissionBlock)(void) = ^{
         dispatch_async(self.sessionQueue, ^{
             // 视频编码配置
-            PLVideoStreamingConfiguration *videoConfiguration = [PLVideoStreamingConfiguration configurationWithUserDefineDimension:CGSizeMake(320, 480)
-                                                                                                                       videoQuality:kPLVideoStreamingQualityLow2];
+            PLVideoStreamingConfiguration *videoConfiguration = [self.videoConfigurations lastObject];
             // 音频编码配置
             PLAudioStreamingConfiguration *audioConfiguration = [PLAudioStreamingConfiguration defaultConfiguration];
             
@@ -84,9 +132,6 @@ PLStreamingSendingBufferDelegate
             self.session.bufferDelegate = self;
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.session.previewView = self.view;
-                UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap:)];
-                tap.numberOfTapsRequired = 2;
-                [self.view addGestureRecognizer:tap];
             });
         });
     };
@@ -116,36 +161,6 @@ PLStreamingSendingBufferDelegate
     }
 }
 
-- (void)tap:(id)sender {
-    NSString *quality = self.session.videoConfiguration.videoQuality;
-    
-    [self.session beginUpdateConfiguration];
-    
-    if ([quality isEqualToString:kPLVideoStreamingQualityLow1]) {
-        quality = kPLVideoStreamingQualityLow2;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityLow2]) {
-        quality = kPLVideoStreamingQualityLow3;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityLow3]) {
-        quality = kPLVideoStreamingQualityMedium1;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityMedium1]) {
-        quality = kPLVideoStreamingQualityMedium2;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityMedium2]) {
-        quality = kPLVideoStreamingQualityMedium3;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityMedium3]) {
-        quality = kPLVideoStreamingQualityHigh1;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityHigh1]) {
-        quality = kPLVideoStreamingQualityHigh2;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityHigh2]) {
-        quality = kPLVideoStreamingQualityHigh3;
-    } else if ([quality isEqualToString:kPLVideoStreamingQualityHigh3]) {
-        quality = kPLVideoStreamingQualityLow1;
-    }
-    
-    self.session.videoConfiguration.videoQuality = quality;
-    NSLog(@"%@", quality);
-    [self.session endUpdateConfiguration];
-}
-
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self name:kReachabilityChangedNotification object:nil];
     
@@ -169,60 +184,26 @@ PLStreamingSendingBufferDelegate
     }
     
     NSLog(@"Networkt Status: %s", networkStatus[status]);
+    self.textView.text = LogString();
 }
 
 #pragma mark - <PLStreamingSendingBufferDelegate>
 
-- (void)streamingSessionSendingBufferFillDidLowerThanLowThreshold:(id)session {
-    if (self.session.isRunning) {
-        NSString *oldVideoQuality = self.session.videoConfiguration.videoQuality;
-        NSString *newVideoQuality = kPLVideoStreamingQualityLow3;
-        
-        if ([oldVideoQuality isEqualToString:kPLVideoStreamingQualityLow1]) {
-            newVideoQuality = kPLVideoStreamingQualityLow2;
-        } else if ([oldVideoQuality isEqualToString:kPLVideoStreamingQualityLow2]) {
-            newVideoQuality = kPLVideoStreamingQualityLow3;
-        }
-        
-        dispatch_sync(self.sessionQueue, ^{
-            [self.session beginUpdateConfiguration];
-            self.session.videoConfiguration.videoQuality = newVideoQuality;
-            [self.session endUpdateConfiguration];
-        });
-    }
-}
-
-- (void)streamingSessionSendingBufferFillDidHigherThanHighThreshold:(id)session {
-    if (self.session.isRunning) {
-        NSString *oldVideoQuality = self.session.videoConfiguration.videoQuality;
-        NSString *newVideoQuality = kPLVideoStreamingQualityLow1;
-        
-        if ([oldVideoQuality isEqualToString:kPLVideoStreamingQualityLow3]) {
-            newVideoQuality = kPLVideoStreamingQualityLow2;
-        } else if ([oldVideoQuality isEqualToString:kPLVideoStreamingQualityLow2]) {
-            newVideoQuality = kPLVideoStreamingQualityLow1;
-        }
-        
-        dispatch_sync(self.sessionQueue, ^{
-            [self.session beginUpdateConfiguration];
-            self.session.videoConfiguration.videoQuality = newVideoQuality;
-            [self.session endUpdateConfiguration];
-        });
-    }
-}
-
 - (void)streamingSessionSendingBufferDidFull:(id)session {
     NSLog(@"Buffer is full");
+    self.textView.text = LogString();
 }
 
 - (void)streamingSession:(id)session sendingBufferDidDropItems:(NSArray *)items {
     NSLog(@"Frame dropped");
+    self.textView.text = LogString();
 }
 
 #pragma mark - <PLCameraStreamingSessionDelegate>
 
 - (void)cameraStreamingSession:(PLCameraStreamingSession *)session streamStateDidChange:(PLStreamState)state {
     NSLog(@"Stream State: %s", stateNames[state]);
+    self.textView.text = LogString();
     
     // 除 PLStreamStateError 外的其余状态会回调在这个方法
     // 这个回调会确保在主线程，所以可以直接对 UI 做操作
@@ -235,21 +216,73 @@ PLStreamingSendingBufferDelegate
 
 - (void)cameraStreamingSession:(PLCameraStreamingSession *)session didDisconnectWithError:(NSError *)error {
     NSLog(@"Stream State: Error. %@", error);
+    self.textView.text = LogString();
     // PLStreamStateError 都会回调在这个方法
     // 尝试重连，注意这里需要你自己来处理重连尝试的次数以及重连的时间间隔
     [self.actionButton setTitle:NSLocalizedString(@"Reconnecting", nil) forState:UIControlStateNormal];
     [self startSession];
 }
 
+- (void)cameraStreamingSession:(PLCameraStreamingSession *)session streamStatusDidUpdate:(PLStreamStatus *)status {
+    NSLog(@"%@", status);
+    self.textView.text = LogString();
+    
+    NSDate *now = [NSDate date];
+    if (!self.keyTime) {
+        self.keyTime = now;
+    }
+    
+    double expectedVideoFPS = (double)self.session.videoConfiguration.videoFrameRate;
+    double realtimeVideoFPS = status.videoFPS;
+    if (realtimeVideoFPS < expectedVideoFPS * (1 - kMaxVideoFPSPercent)) {
+        // 当得到的 status 中 video fps 比设定的 fps 的 50% 还小时，触发降低推流质量的操作
+        self.keyTime = now;
+        
+        [self lowerQuality];
+    } else if (realtimeVideoFPS >= expectedVideoFPS * (1 - kMinVideoFPSPercent)) {
+        if (-[self.keyTime timeIntervalSinceNow] > kHigherQualityTimeInterval) {
+            self.keyTime = now;
+            
+            [self higherQuality];
+        }
+    }
+}
+
+#pragma mark -
+
+- (void)higherQuality {
+    NSUInteger idx = [self.videoConfigurations indexOfObject:self.session.videoConfiguration];
+    NSAssert(idx != NSNotFound, @"Oops");
+    
+    if (idx >= self.videoConfigurations.count - 1) {
+        return;
+    }
+    PLVideoStreamingConfiguration *newConfiguration = self.videoConfigurations[idx + 1];
+    [self.session reloadVideoConfiguration:newConfiguration];
+}
+
+- (void)lowerQuality {
+    NSUInteger idx = [self.videoConfigurations indexOfObject:self.session.videoConfiguration];
+    NSAssert(idx != NSNotFound, @"Oops");
+    
+    if (0 == idx) {
+        return;
+    }
+    PLVideoStreamingConfiguration *newConfiguration = self.videoConfigurations[idx - 1];
+    [self.session reloadVideoConfiguration:newConfiguration];
+}
+
 #pragma mark - Operation
 
 - (void)stopSession {
     dispatch_async(self.sessionQueue, ^{
+        self.keyTime = nil;
         [self.session stop];
     });
 }
 
 - (void)startSession {
+    self.keyTime = nil;
     self.actionButton.enabled = NO;
     dispatch_async(self.sessionQueue, ^{
         [self.session startWithCompleted:^(BOOL success) {
